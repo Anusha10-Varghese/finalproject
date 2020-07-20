@@ -1,0 +1,143 @@
+#include <SoftwareSerial.h>
+
+SoftwareSerial mySerial(8,9); //rx,tx
+
+char ssid[] = "BSNL_AP";
+char pass[] = "lachuparu";
+
+char server[] = "www.audreytech.com";
+String uri= "http://www.audreytech.com/embedded/insertland.php";
+//test input ip : http://www.audreytech.com/embedded/insertland.php?v=""
+//test output ip : http://www.audreytech.com/embedded/viewland.php
+
+//Sensors
+int vib_sensor_pin = A0;               // vibration sensor 
+long vib_data = 0; 
+
+int m_sensor_pin = A4;
+int moist_value = 0;
+
+int count = 0;
+
+void setup() {
+  Serial.begin(9600);
+  mySerial.begin(115200);
+}
+
+void loop() {
+  if(count==0)                                      // WiFi not connected
+  { 
+     reset();
+     wifiinit();
+     connectWifi();
+  }
+  
+  if(count==1)                                      // WiFi Connected
+  {   
+    readsensor();
+    String v_dat = String (vib_data);
+    String m_val = String (moist_value);
+    
+    Serial.print("Vibration : ");
+    Serial.println(vib_data);
+    Serial.print("Soil Moisture : ");
+    Serial.print(moist_value);
+    Serial.println("%");
+    delay(500);
+    
+    httppost(v_dat, m_val);
+  }
+}
+
+void readsensor() 
+{
+  vib_data = 0;
+  moist_value = 0;
+  
+  vib_data = pulseIn (vib_sensor_pin, HIGH);  //reading vibration value
+
+  moist_value = analogRead(m_sensor_pin);
+  moist_value  = map(moist_value,550,0,0,100);
+
+}
+
+void reset() 
+{
+  mySerial.println("AT+RST");
+  delay(5000);
+  if(mySerial.find("OK"))
+  { 
+    Serial.println("Module Reset");
+  }
+}
+
+void connectWifi() 
+{
+  String cmd = "AT+CWJAP=\"" + String(ssid) +"\",\"" + String(pass) + "\"";
+  mySerial.println(cmd);
+  delay(5000);
+  if(mySerial.find("OK")) 
+  {
+    Serial.println("Connected!");
+    count = 1;
+  }
+
+  else
+  {
+    Serial.println("Cannot connect to wifi"); 
+    connectWifi();
+  }
+}
+
+void wifiinit()
+{
+  mySerial.println("AT");
+  mySerial.println("AT+CWMODE=3");
+  mySerial.println("AT+GMR=?");
+}
+
+void httppost(String v_dat, String m_val) 
+{
+  String dat = "\0";
+  dat = dat + v_dat + '*' + m_val;
+  String data2 = "\0";
+  data2 =data2 + "v=" + dat; // debug
+  //mySerial.println("AT+CIPSTART=\"TCP\",\"" + server + "\",80");//start a TCP connection.
+  mySerial.print("AT+CIPSTART=\"TCP\",\"");//start a TCP connection.  
+  mySerial.print(server);//start a TCP connection. 
+  mySerial.println("\",80");//start a TCP connection.
+  Serial.println("sent........."); 
+  delay(5000);
+  if( mySerial.find("OK")) 
+  {
+    Serial.println("TCP connection ready");  
+  } 
+  delay(1000); 
+  String postRequest = "POST " + uri +" HTTP/1.0\r\n" + "Host: " + server + "\r\n" + "Accept: *" + "/" + "*\r\n" + "Content-Length: " + data2.length() + "\r\n" + "Content-Type: application/x-www-form-urlencoded\r\n" + "\r\n" + data2; 
+  String sendCmd = "AT+CIPSEND=";//determine the number of caracters to be sent.  
+  mySerial.print(sendCmd); 
+  mySerial.println(postRequest.length());  
+  delay(500); 
+  delay(5000); 
+  if(mySerial.find(">")) 
+  { 
+    Serial.println("Sending.."); 
+    mySerial.print(postRequest); 
+    delay(5000);
+    if( mySerial.find("SEND OK")) 
+    { 
+      Serial.println("Packet sent"); 
+      while (mySerial.available()) 
+      { 
+        String tmpResp = mySerial.readString();   
+        Serial.println(tmpResp);  
+      } 
+      // close the connection   
+      mySerial.println("AT+CIPCLOSE");  
+    }  
+  }
+  data2 = "\0";
+  count = 0;
+}
+
+
